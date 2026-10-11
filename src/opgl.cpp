@@ -12,9 +12,36 @@ const char* vertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoord;
+uniform float angle;
+uniform float aspectRatio;
 out vec2 TexCoord;
 void main() {
-    gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
+    float cosAngle = cos(angle);
+    float sinAngle = sin(angle);
+    vec3 rotated = vec3(
+        cosAngle * aPos.x + sinAngle * aPos.z,
+        aPos.y,
+        -sinAngle * aPos.x + cosAngle * aPos.z
+    );
+    float cosTilt = cos(angle * 0.7);
+    float sinTilt = sin(angle * 0.7);
+    rotated = vec3(
+        rotated.x,
+        cosTilt * rotated.y - sinTilt * rotated.z,
+        sinTilt * rotated.y + cosTilt * rotated.z
+    );
+
+    float cameraZ = rotated.z - 3.0;
+    float nearPlane = 0.1;
+    float farPlane = 100.0;
+    float focalLength = 2.41421356;
+    gl_Position = vec4(
+        rotated.x * focalLength / aspectRatio,
+        rotated.y * focalLength,
+        ((farPlane + nearPlane) / (nearPlane - farPlane)) * cameraZ +
+            (2.0 * farPlane * nearPlane) / (nearPlane - farPlane),
+        -cameraZ
+    );
     TexCoord = aTexCoord;
 }
 )";
@@ -85,7 +112,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // 2. Create the window
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Step 1: Modern OpenGL Triangle", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(800, 600, "OpenGL Test Window", NULL, NULL);
     if (!window) {
         std::cout << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -142,13 +169,29 @@ int main() {
     glUseProgram(shaderProgram);
     glUniform1i(glGetUniformLocation(shaderProgram, "texture1"), 0);
 
-    // 7. Define triangle coordinates in Normalized Device Coordinates (NDC)
-    float vertices[] = {
-    // Positions      // Texture Coords
-    -0.5f, -0.5f, 0.0f,  0.0f, 0.0f, // Bottom Left
-     0.5f, -0.5f, 0.0f,  1.0f, 0.0f, // Bottom Right
-     0.0f,  0.5f, 0.0f,  0.5f, 1.0f  // Top Center
-};
+    // Each face is a quad split into two triangles.
+    const float faces[6][4][3] = {
+        {{-0.5f, -0.5f,  0.5f}, { 0.5f, -0.5f,  0.5f}, { 0.5f,  0.5f,  0.5f}, {-0.5f,  0.5f,  0.5f}},
+        {{ 0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f}, {-0.5f,  0.5f, -0.5f}, { 0.5f,  0.5f, -0.5f}},
+        {{-0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f,  0.5f}, {-0.5f,  0.5f,  0.5f}, {-0.5f,  0.5f, -0.5f}},
+        {{ 0.5f, -0.5f,  0.5f}, { 0.5f, -0.5f, -0.5f}, { 0.5f,  0.5f, -0.5f}, { 0.5f,  0.5f,  0.5f}},
+        {{-0.5f,  0.5f,  0.5f}, { 0.5f,  0.5f,  0.5f}, { 0.5f,  0.5f, -0.5f}, {-0.5f,  0.5f, -0.5f}},
+        {{-0.5f, -0.5f, -0.5f}, { 0.5f, -0.5f, -0.5f}, { 0.5f, -0.5f,  0.5f}, {-0.5f, -0.5f,  0.5f}}
+    };
+    const float texCoords[4][2] = {
+        {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}
+    };
+    const unsigned int triangleIndices[6] = {0, 1, 2, 0, 2, 3};
+    std::vector<float> vertices;
+    vertices.reserve(6 * 6 * 5);
+    for (const auto& face : faces) {
+        for (unsigned int index : triangleIndices) {
+            vertices.insert(vertices.end(), {
+                face[index][0], face[index][1], face[index][2],
+                texCoords[index][0], texCoords[index][1]
+            });
+        }
+    }
 
     // 8. Generate and bind VAO & VBO
     unsigned int VAO, VBO;
@@ -159,7 +202,8 @@ int main() {
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float),
+                 vertices.data(), GL_STATIC_DRAW);
 
     // Configure position and texture-coordinate attributes.
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
@@ -172,6 +216,11 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    const GLint angleLocation = glGetUniformLocation(shaderProgram, "angle");
+    const GLint aspectRatioLocation =
+        glGetUniformLocation(shaderProgram, "aspectRatio");
+    glEnable(GL_DEPTH_TEST);
+
     // 9. Main Render Loop
     while (!glfwWindowShouldClose(window)) {
         // Handle input (close window on ESC)
@@ -180,14 +229,22 @@ int main() {
 
         // Clear screen with a dark grey background
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Draw triangle using our shader program and VAO
+        // Draw the rotating cube using our shader program and VAO.
         glUseProgram(shaderProgram);
+        glUniform1f(angleLocation, static_cast<float>(glfwGetTime()));
+        int framebufferWidth;
+        int framebufferHeight;
+        glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+        if (framebufferHeight > 0) {
+            glUniform1f(aspectRatioLocation,
+                        static_cast<float>(framebufferWidth) / framebufferHeight);
+        }
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
 
         // Swap buffers and poll window events
         glfwSwapBuffers(window);
