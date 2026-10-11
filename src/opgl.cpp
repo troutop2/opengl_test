@@ -42,7 +42,7 @@ GLuint loadTexture(const wchar_t* path) {
     Gdiplus::Rect rect(0, 0, width, height);
     Gdiplus::BitmapData bitmapData{};
     if (image.LockBits(&rect, Gdiplus::ImageLockModeRead,
-                       Gdiplus::PixelFormat32bppARGB, &bitmapData) != Gdiplus::Ok) {
+                       PixelFormat32bppARGB, &bitmapData) != Gdiplus::Ok) {
         std::wcerr << L"Failed to read texture pixels: " << path << std::endl;
         return 0;
     }
@@ -63,8 +63,8 @@ GLuint loadTexture(const wchar_t* path) {
     glBindTexture(GL_TEXTURE_2D, texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
                  GL_BGRA, GL_UNSIGNED_BYTE, pixels.data());
     glGenerateMipmap(GL_TEXTURE_2D);
