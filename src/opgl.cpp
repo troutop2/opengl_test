@@ -1,155 +1,124 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-
 #include <iostream>
 
-class LineRenderer {
-public:
-	bool initialize() {
-		const char* vertexSource = R"(#version 330 core
-			layout (location = 0) in vec2 position;
-			void main() { gl_Position = vec4(position, 0.0, 1.0); }
-		)";
-		const char* fragmentSource = R"(#version 330 core
-			out vec4 fragmentColor;
-			uniform vec3 lineColor;
-			void main() { fragmentColor = vec4(lineColor, 1.0); }
-		)";
+// Vertex Shader Source
+const char* vertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+void main() {
+    gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
+}
+)";
 
-		const GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
-		const GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
-		if (!vertexShader || !fragmentShader) {
-			if (vertexShader) glDeleteShader(vertexShader);
-			if (fragmentShader) glDeleteShader(fragmentShader);
-			return false;
-		}
+// Fragment Shader Source
+const char* fragmentShaderSource = R"(
+#version 330 core
+out vec4 FragColor;
+void main() {
+    FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+}
+)";
 
-		program_ = glCreateProgram();
-		glAttachShader(program_, vertexShader);
-		glAttachShader(program_, fragmentShader);
-		glLinkProgram(program_);
-		glDeleteShader(vertexShader);
-		glDeleteShader(fragmentShader);
-
-		GLint linked = GL_FALSE;
-		glGetProgramiv(program_, GL_LINK_STATUS, &linked);
-		if (!linked) {
-			GLint length = 0;
-			glGetProgramiv(program_, GL_INFO_LOG_LENGTH, &length);
-			char log[1024]{};
-			glGetProgramInfoLog(program_, length, nullptr, log);
-			std::cerr << "Shader link error: " << log << '\n';
-			glDeleteProgram(program_);
-			program_ = 0;
-			return false;
-		}
-
-		colorLocation_ = glGetUniformLocation(program_, "lineColor");
-		glGenVertexArrays(1, &vao_);
-		glGenBuffers(1, &vbo_);
-		glBindVertexArray(vao_);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 4, nullptr, GL_DYNAMIC_DRAW);
-		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), nullptr);
-		glEnableVertexAttribArray(0);
-		glBindVertexArray(0);
-		return true;
-	}
-
-	// Coordinates use OpenGL normalized device space: [-1, 1].
-	void draw(float x1, float y1, float x2, float y2,
-			  float red = 1.0f, float green = 1.0f, float blue = 1.0f) const {
-		const float points[] = {x1, y1, x2, y2};
-		glUseProgram(program_);
-		glUniform3f(colorLocation_, red, green, blue);
-		glBindVertexArray(vao_);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(points), points);
-		glDrawArrays(GL_LINES, 0, 2);
-		glBindVertexArray(0);
-	}
-
-	void shutdown() {
-		if (vbo_) glDeleteBuffers(1, &vbo_);
-		if (vao_) glDeleteVertexArrays(1, &vao_);
-		if (program_) glDeleteProgram(program_);
-		vbo_ = vao_ = program_ = 0;
-	}
-
-private:
-	static GLuint compileShader(GLenum type, const char* source) {
-		const GLuint shader = glCreateShader(type);
-		glShaderSource(shader, 1, &source, nullptr);
-		glCompileShader(shader);
-		GLint compiled = GL_FALSE;
-		glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-		if (!compiled) {
-			GLint length = 0;
-			glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-			char log[1024]{};
-			glGetShaderInfoLog(shader, length, nullptr, log);
-			std::cerr << "Shader compile error: " << log << '\n';
-			glDeleteShader(shader);
-			return 0;
-		}
-		return shader;
-	}
-
-	GLuint vao_ = 0;
-	GLuint vbo_ = 0;
-	GLuint program_ = 0;
-	GLint colorLocation_ = -1;
-};
+// Window resize callback
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+}
 
 int main() {
-	if (!glfwInit()) {
-		std::cerr << "Failed to initialize GLFW\n";
-		return 1;
-	}
+    // 1. Initialize GLFW and request OpenGL 3.3 Core Profile
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    // 2. Create the window
+    GLFWwindow* window = glfwCreateWindow(800, 600, "Step 1: Modern OpenGL Triangle", NULL, NULL);
+    if (!window) {
+        std::cout << "Failed to create GLFW window" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-	GLFWwindow* window = glfwCreateWindow(800, 600, "OpenGL Line Renderer", nullptr, nullptr);
-	if (!window) {
-		std::cerr << "Failed to create window\n";
-		glfwTerminate();
-		return 1;
-	}
-	glfwMakeContextCurrent(window);
+    // 3. Load function pointers via GLAD
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cout << "Failed to initialize GLAD" << std::endl;
+        return -1;
+    }
 
-	if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
-		std::cerr << "Failed to initialize GLAD\n";
-		glfwDestroyWindow(window);
-		glfwTerminate();
-		return 1;
-	}
+    // 4. Compile Vertex Shader
+    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+    glCompileShader(vertexShader);
 
-	glfwSetFramebufferSizeCallback(window, [](GLFWwindow*, int width, int height) {
-		glViewport(0, 0, width, height);
-	});
-	int width = 0, height = 0;
-	glfwGetFramebufferSize(window, &width, &height);
-	glViewport(0, 0, width, height);
+    // 5. Compile Fragment Shader
+    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+    glCompileShader(fragmentShader);
 
-	LineRenderer renderer;
-	if (!renderer.initialize()) {
-		glfwDestroyWindow(window);
-		glfwTerminate();
-		return 1;
-	}
+    // 6. Link Shaders into a Shader Program
+    unsigned int shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
 
-	while (!glfwWindowShouldClose(window)) {
-		glClearColor(0.08f, 0.08f, 0.1f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-		renderer.draw(-0.7f, -0.5f, 0.7f, 0.5f, 0.2f, 0.8f, 1.0f);
-		glfwSwapBuffers(window);
-		glfwPollEvents();
-	}
+    // Delete individual shaders now that they're linked into the program
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
 
-	renderer.shutdown();
-	glfwDestroyWindow(window);
-	glfwTerminate();
-	return 0;
+    // 7. Define triangle coordinates in Normalized Device Coordinates (NDC)
+    float vertices[] = {
+        -0.5f, -0.5f, 0.0f, // Bottom Left
+         0.5f, -0.5f, 0.0f, // Bottom Right
+         0.0f,  0.5f, 0.0f  // Top Center
+    };
+
+    // 8. Generate and bind VAO & VBO
+    unsigned int VAO, VBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+
+    // Bind VAO first, then bind and configure VBO
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    // Tell OpenGL how to interpret position attribute (location 0, 3 floats per vertex)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Unbind buffer and array object to prevent unintended modification
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // 9. Main Render Loop
+    while (!glfwWindowShouldClose(window)) {
+        // Handle input (close window on ESC)
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+            glfwSetWindowShouldClose(window, true);
+
+        // Clear screen with a dark grey background
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Draw triangle using our shader program and VAO
+        glUseProgram(shaderProgram);
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        // Swap buffers and poll window events
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    // 10. Clean up GPU memory
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glDeleteProgram(shaderProgram);
+
+    glfwTerminate();
+    return 0;
 }
